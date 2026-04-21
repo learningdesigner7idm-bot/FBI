@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Synergy Bank: Rekening Emosi</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --primary: #6C63FF;
+    --secondary: #FF6584;
+    --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --glass: rgba(255,255,255,0.9);
+    --deposit: #43A047;
+    --withdrawal: #E53935;
+    --text-dark: #2D3436;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Poppins', sans-serif;
+    background: var(--bg-gradient);
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    color: var(--text-dark);
+  }
+  #game-container {
+    width: 95%;
+    max-width: 850px;
+    height: 650px;
+    background: var(--glass);
+    backdrop-filter: blur(20px);
+    border-radius: 35px;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.25);
+    position: relative;
+    overflow: hidden;
+    border: 2px solid rgba(255,255,255,0.6);
+    display: flex;
+    flex-direction: column;
+  }
+  .screen {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: none;
+    padding: 40px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    z-index: 5;
+  }
+  .active { display: flex; animation: slideIn 0.5s ease-out forwards; }
+  @keyframes slideIn {
+    from { opacity: 0; transform: scale(0.95) translateY(20px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0); }
+  }
+
+  /* UI Controls */
+  #ui-controls {
+    position: absolute;
+    top: 25px; right: 25px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+  .icon-btn {
+    background: white;
+    width: 50px; height: 50px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    font-size: 1.4rem;
+    transition: all 0.3s cubic-bezier(0.175,0.885,0.32,1.275);
+    border: 2px solid var(--primary);
+    user-select: none;
+  }
+  .icon-btn:hover { transform: scale(1.1); }
+  .icon-btn.active { background: var(--primary); }
+  /* Music pulse animation when playing */
+  #music-btn.playing {
+    animation: musicPulse 1.8s ease-in-out infinite;
+    border-color: #FF6584;
+  }
+  @keyframes musicPulse {
+    0%,100% { box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
+    50%      { box-shadow: 0 6px 30px rgba(255,101,132,0.55); }
+  }
+
+  /* Login */
+  #player-input {
+    padding: 20px 30px;
+    border-radius: 20px;
+    border: 3px solid #eee;
+    width: 450px; max-width: 90%;
+    margin-bottom: 25px;
+    font-family: inherit; font-size: 1.3rem;
+    text-align: center; outline: none;
+    transition: all 0.3s;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+  }
+  #player-input:focus { border-color: var(--primary); box-shadow: 0 10px 25px rgba(108,99,255,0.2); }
+
+  /* Character */
+  #character-dara {
+    width: 220px; height: auto;
+    margin-bottom: -10px; z-index: 10;
+    animation: float 4s ease-in-out infinite;
+  }
+  @keyframes float {
+    0%,100% { transform: translateY(0); }
+    50%      { transform: translateY(-15px); }
+  }
+
+  /* Status Bar */
+  #status-bar {
+    position: absolute;
+    top: 25px; left: 35px;
+    display: flex; gap: 25px; align-items: center;
+    z-index: 10;
+  }
+  .lives-box { font-size: 1.6rem; letter-spacing: 3px; }
+  .score-badge {
+    background: var(--primary); color: white;
+    padding: 8px 25px; border-radius: 50px; font-weight: 800;
+  }
+
+  /* VN Box */
+  #vn-box {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 100%; height: 190px;
+    background: white;
+    border-top: 8px solid var(--primary);
+    padding: 30px 50px;
+    text-align: left;
+    display: flex; flex-direction: column; justify-content: center;
+    z-index: 20;
+  }
+
+  /* Game Elements */
+  .zones-container {
+    display: flex;
+    justify-content: space-between;
+    width: 100%; margin-top: 50px; gap: 25px;
+  }
+  .drop-zone {
+    flex: 1; height: 150px;
+    border: 4px dashed #cbd5e0;
+    border-radius: 30px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.6);
+    position: relative;
+    transition: all 0.25s;
+  }
+  .drop-zone.over { border-color: var(--primary); background: rgba(108,99,255,0.15); }
+
+  #cards-pile {
+    margin-top: 30px;
+    display: flex; flex-wrap: wrap;
+    justify-content: center; gap: 12px;
+    overflow-y: auto; max-height: 200px; padding: 10px;
+  }
+  .card {
+    background: white;
+    padding: 12px 20px; border-radius: 12px;
+    cursor: grab; font-size: 0.9rem;
+    box-shadow: 0 6px 15px rgba(0,0,0,0.1);
+    border: 1px solid #f0f0f0; max-width: 280px;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px rgba(0,0,0,0.15); }
+
+  /* Coin pop */
+  .coin-pop {
+    position: absolute; font-size: 2.5rem;
+    pointer-events: none;
+    animation: coinUp 0.8s ease-out forwards;
+    z-index: 100;
+  }
+  @keyframes coinUp {
+    0%   { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-100px); }
+  }
+
+  /* Toast */
+  #toast {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    padding: 20px 40px; border-radius: 20px;
+    color: white; font-weight: 800;
+    z-index: 2000; display: none;
+    font-size: 1.2rem;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  }
+
+  .btn {
+    background: var(--primary); color: white;
+    border: none; padding: 16px 50px;
+    border-radius: 20px; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+    box-shadow: 0 10px 25px rgba(108,99,255,0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(108,99,255,0.4); }
+
+  #narrative-feedback {
+    width: 100%; flex-grow: 1;
+    overflow-y: auto;
+    background: rgba(255,255,255,0.8);
+    border-radius: 25px; padding: 25px;
+    text-align: left; margin-top: 20px;
+  }
+  .feedback-item { margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+  .feedback-tag { font-size: 0.75rem; font-weight: 800; padding: 2px 8px; border-radius: 5px; }
+  .tag-deposit    { background: #e8f5e9; color: #2e7d32; }
+  .tag-withdrawal { background: #ffebee; color: #c62828; }
+
+  .hidden { display: none; }
+  .shake { animation: shake 0.5s; }
+  @keyframes shake {
+    10%,90% { transform: translate3d(-1px,0,0); }
+    20%,80% { transform: translate3d(2px,0,0); }
+    30%,50%,70% { transform: translate3d(-4px,0,0); }
+    40%,60% { transform: translate3d(4px,0,0); }
+  }
+
+  /* Volume indicator */
+  #vol-label {
+    font-size: 0.65rem;
+    color: var(--primary);
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: 0.5px;
+  }
+</style>
+</head>
+<body>
+<div id="game-container">
+
+  <!-- UI Controls -->
+  <div id="ui-controls">
+    <div id="music-btn" class="icon-btn" onclick="toggleMusic()" title="Toggle Musik">🔇</div>
+    <div id="vol-label">BGM OFF</div>
+  </div>
+
+  <div id="toast"></div>
+
+  <div id="status-bar" class="hidden">
+    <div class="lives-box" id="lives-ui">❤️❤️❤️</div>
+    <div class="score-badge">SALDO: <span id="score-val">0</span></div>
+  </div>
+
+  <!-- Screen 1: Welcome -->
+  <div id="screen-welcome" class="screen active">
+    <div style="margin-bottom:25px;">
+      <svg width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--primary);">
+        <path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11M8 14v3M12 14v3M16 14v3"/>
+      </svg>
+    </div>
+    <h1 style="font-size:3.2rem;color:var(--primary);letter-spacing:-1.5px;">Synergy Bank</h1>
+    <p style="margin-bottom:35px;opacity:0.8;">Kelola Rekening Bank Emosimu!</p>
+    <input type="text" id="player-input" placeholder="Siapa namamu?">
+    <button class="btn" onclick="goToStory()">Mulai Perjalanan 🚀</button>
+  </div>
+
+  <!-- Screen 2: Story -->
+  <div id="screen-story" class="screen">
+    <div id="character-dara">
+      <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <path d="M50 100 C 50 40, 150 40, 150 100" fill="#2D3436"/>
+        <circle cx="100" cy="90" r="45" fill="#FFDBAC"/>
+        <path d="M55 80 C 55 40, 145 40, 145 80 C 145 60, 55 60, 55 80" fill="#2D3436"/>
+        <circle cx="85" cy="85" r="3" fill="#2D3436"/>
+        <circle cx="115" cy="85" r="3" fill="#2D3436"/>
+        <path d="M90 105 Q 100 115, 110 105" stroke="#2D3436" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <path d="M60 135 L 140 135 L 160 190 L 40 190 Z" fill="#6C63FF"/>
+        <path d="M100 135 L 120 155 L 100 190 L 80 155 Z" fill="white"/>
+        <rect x="98" y="155" width="4" height="35" fill="#FF6584"/>
+      </svg>
+    </div>
+    <div id="vn-box">
+      <h4 style="color:var(--primary);margin-bottom:5px;font-weight:800;">Dara (RM Expert)</h4>
+      <p id="vn-text" style="font-size:1rem;line-height:1.6;color:#444;"></p>
+      <button class="btn" onclick="nextDialogue()" style="align-self:flex-end;padding:8px 30px;font-size:0.9rem;margin-top:10px;">Lanjut »</button>
+    </div>
+  </div>
+
+  <!-- Screen 3: Game -->
+  <div id="screen-game" class="screen">
+    <p style="margin-top:45px;font-weight:600;font-size:1rem;">Tarik skenario ke kotak yang tepat!</p>
+    <div class="zones-container">
+      <div class="drop-zone" id="deposit"
+           ondragover="allowDrop(event)" ondrop="onDrop(event,'deposit')" ondragleave="onDragLeave(event)">
+        <h3 style="color:var(--deposit);font-weight:800;">💰 SETORAN</h3>
+        <small>Investasi (+)</small>
+      </div>
+      <div class="drop-zone" id="withdrawal"
+           ondragover="allowDrop(event)" ondrop="onDrop(event,'withdrawal')" ondragleave="onDragLeave(event)">
+        <h3 style="color:var(--withdrawal);font-weight:800;">📉 TARIKAN</h3>
+        <small>Minus (−)</small>
+      </div>
+    </div>
+    <div id="cards-pile"></div>
+  </div>
+
+  <!-- Screen 4: Results -->
+  <div id="screen-result" class="screen">
+    <h1 id="result-title" style="font-size:2.2rem;"></h1>
+    <div id="narrative-feedback">
+      <h4 style="margin-bottom:12px;color:var(--primary);font-weight:800;">Evaluasi Dara:</h4>
+      <div id="feedback-list"></div>
+    </div>
+    <button class="btn" style="margin-top:20px;" onclick="location.reload()">Coba Lagi 🔄</button>
+  </div>
+
+</div>
+
+<script>
+// =============================================
+//  STATE
+// =============================================
+let lives = 3;
+let score = 0;
+let playerName = "";
+let step = 0;
+let isMusicOn = false;
+let remaining;
+
+// =============================================
+//  WEB AUDIO API SETUP
+// =============================================
+let audioCtx = null;
+let bgmNodes = {};   // holds refs so we can stop them
+
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioCtx;
+}
+
+// ------ BGM: Fun Gamy — catchy melody + punchy bass + light drums ------
+// ~120 BPM, C major pentatonic melody (xylophone feel), synth bass groove,
+// soft kick+snare, no chord pads. Energik tapi tidak overwhelming.
+function startBGM() {
+  const ctx = getAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+
+  const BPM   = 120;
+  const STEP  = 60 / BPM;          // durasi 1 quarter note = 0.5 detik
+  const BAR   = STEP * 4;          // 1 bar = 2 detik
+  const LOOP  = BAR * 8;           // loop 8 bar = 16 detik
+
+  const masterGain = ctx.createGain();
+  masterGain.gain.value = 0.15;
+  masterGain.connect(ctx.destination);
+  bgmNodes.master = masterGain;
+  bgmNodes.allIntervals = [];
+
+  const loopStart = ctx.currentTime + 0.05;
+
+  // ── helper: schedule note (xylophone-like triangle + sine) ──
+  function note(freq, t, dur, vol = 0.18) {
+    [freq, freq * 2.01].forEach((f, j) => {
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      osc.type = j === 0 ? 'triangle' : 'sine';
+      osc.frequency.value = f;
+      const v = j === 0 ? vol : vol * 0.25;
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(v, t + 0.012);
+      env.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.85);
+      osc.connect(env);
+      env.connect(masterGain);
+      osc.start(t);
+      osc.stop(t + dur);
+    });
+  }
+
+  // ── helper: synth bass note ──
+  function bass(freq, t, dur, vol = 0.22) {
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    const filt = ctx.createBiquadFilter();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    filt.type = 'lowpass';
+    filt.frequency.value = 320;
+    filt.Q.value = 1.2;
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(vol, t + 0.02);
+    env.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.75);
+    osc.connect(filt);
+    filt.connect(env);
+    env.connect(masterGain);
+    osc.start(t);
+    osc.stop(t + dur);
+  }
+
+  // ── helper: kick drum ──
+  function kick(t, vol = 0.45) {
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(180, t);
+    osc.frequency.exponentialRampToValueAtTime(38, t + 0.07);
+    env.gain.setValueAtTime(vol, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+    osc.connect(env);
+    env.connect(masterGain);
+    osc.start(t);
+    osc.stop(t + 0.18);
+  }
+
+  // ── helper: snare (noise burst) ──
+  function snare(t, vol = 0.12) {
+    const bufSz = Math.floor(ctx.sampleRate * 0.1);
+    const buf   = ctx.createBuffer(1, bufSz, ctx.sampleRate);
+    const data  = buf.getChannelData(0);
+    for (let i = 0; i < bufSz; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufSz);
+    const src  = ctx.createBufferSource();
+    const hpf  = ctx.createBiquadFilter();
+    const env  = ctx.createGain();
+    src.buffer = buf;
+    hpf.type = 'highpass';
+    hpf.frequency.value = 1800;
+    env.gain.setValueAtTime(vol, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    src.connect(hpf);
+    hpf.connect(env);
+    env.connect(masterGain);
+    src.start(t);
+  }
+
+  // ── helper: hi-hat ──
+  function hihat(t, vol = 0.04) {
+    const bufSz = Math.floor(ctx.sampleRate * 0.04);
+    const buf   = ctx.createBuffer(1, bufSz, ctx.sampleRate);
+    const data  = buf.getChannelData(0);
+    for (let i = 0; i < bufSz; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufSz);
+    const src  = ctx.createBufferSource();
+    const hpf  = ctx.createBiquadFilter();
+    const env  = ctx.createGain();
+    src.buffer = buf;
+    hpf.type = 'highpass';
+    hpf.frequency.value = 9000;
+    env.gain.setValueAtTime(vol, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
+    src.connect(hpf);
+    hpf.connect(env);
+    env.connect(masterGain);
+    src.start(t);
+  }
+
+  // ════════════════════════════════════════
+  //  MELODY — C major pentatonic, xylophone
+  //  Catchy 8-bar hook, nada terasa bouncy
+  //  C4=261.63  D4=293.66  E4=329.63
+  //  G4=392.00  A4=440.00  C5=523.25
+  //  D5=587.33  E5=659.25  G5=783.99
+  // ════════════════════════════════════════
+  const S  = STEP;
+  const melSeq = [
+    // Bar 1 — intro bounce
+    [523.25, 0*S, S*0.4],
+    [587.33, 0.5*S, S*0.4],
+    [659.25, 1*S, S*0.45],
+    [783.99, 1.5*S, S*0.4],
+    [659.25, 2*S, S*0.4],
+    [587.33, 2.5*S, S*0.4],
+    [523.25, 3*S, S*0.7],
+    // Bar 2 — descend
+    [493.88, 4*S, S*0.35],
+    [440.00, 4.5*S, S*0.35],
+    [392.00, 5*S, S*0.55],
+    [329.63, 5.75*S, S*0.35],
+    [392.00, 6*S, S*0.35],
+    [440.00, 6.5*S, S*0.35],
+    [392.00, 7*S, S*0.8],
+    // Bar 3 — rising run
+    [329.63, 8*S, S*0.3],
+    [392.00, 8.4*S, S*0.3],
+    [440.00, 8.8*S, S*0.3],
+    [523.25, 9*S, S*0.3],
+    [587.33, 9.4*S, S*0.3],
+    [659.25, 9.8*S, S*0.3],
+    [783.99, 10*S, S*0.55],
+    [659.25, 11*S, S*0.4],
+    [523.25, 11.5*S, S*0.7],
+    // Bar 4 — groove pocket
+    [440.00, 12*S, S*0.35],
+    [523.25, 12.5*S, S*0.35],
+    [587.33, 13*S, S*0.5],
+    [523.25, 13.75*S, S*0.25],
+    [440.00, 14*S, S*0.35],
+    [392.00, 14.5*S, S*0.35],
+    [329.63, 15*S, S*0.9],
+    // Bar 5 — repeat hook variation
+    [523.25, 16*S, S*0.4],
+    [659.25, 16.5*S, S*0.4],
+    [783.99, 17*S, S*0.55],
+    [659.25, 17.75*S, S*0.25],
+    [523.25, 18*S, S*0.35],
+    [440.00, 18.5*S, S*0.35],
+    [523.25, 19*S, S*0.9],
+    // Bar 6 — playful skip
+    [392.00, 20*S, S*0.3],
+    [523.25, 20.4*S, S*0.3],
+    [392.00, 20.8*S, S*0.3],
+    [440.00, 21*S, S*0.3],
+    [523.25, 21.5*S, S*0.55],
+    [587.33, 22*S, S*0.35],
+    [659.25, 22.5*S, S*0.35],
+    [523.25, 23*S, S*0.8],
+    // Bar 7 — build up
+    [261.63, 24*S, S*0.3],
+    [329.63, 24.4*S, S*0.3],
+    [392.00, 24.8*S, S*0.3],
+    [440.00, 25*S, S*0.3],
+    [523.25, 25.4*S, S*0.3],
+    [587.33, 25.8*S, S*0.3],
+    [659.25, 26*S, S*0.3],
+    [783.99, 26.4*S, S*0.3],
+    [880.00, 26.8*S, S*0.35],
+    [783.99, 27*S, S*0.35],
+    [659.25, 27.5*S, S*0.35],
+    [523.25, 28*S, S*0.9],
+    // Bar 8 — resolve & rest before loop
+    [440.00, 29*S, S*0.4],
+    [523.25, 29.5*S, S*0.4],
+    [659.25, 30*S, S*0.6],
+    [523.25, 31*S, S*1.1],
+  ];
+
+  // ════════════════════════════════════════
+  //  BASS LINE — punchy synth, per-bar groove
+  // ════════════════════════════════════════
+  const bassSeq = [
+    // bar 1
+    [65.41, 0*S, S*0.38],    // C2
+    [65.41, 1*S, S*0.2],
+    [65.41, 1.5*S, S*0.2],
+    [65.41, 2*S, S*0.38],
+    [65.41, 3*S, S*0.38],
+    // bar 2
+    [55.00, 4*S, S*0.38],    // A1
+    [55.00, 5*S, S*0.2],
+    [55.00, 5.5*S, S*0.2],
+    [55.00, 6*S, S*0.38],
+    [55.00, 7*S, S*0.38],
+    // bar 3
+    [87.31, 8*S, S*0.38],    // F2
+    [87.31, 9*S, S*0.2],
+    [87.31, 9.5*S, S*0.2],
+    [87.31, 10*S, S*0.38],
+    [87.31, 11*S, S*0.38],
+    // bar 4
+    [73.42, 12*S, S*0.38],   // D2
+    [73.42, 13*S, S*0.2],
+    [73.42, 13.5*S, S*0.2],
+    [73.42, 14*S, S*0.38],
+    [73.42, 15*S, S*0.38],
+    // bar 5-8 repeat same pattern
+    [65.41, 16*S, S*0.38],
+    [65.41, 17*S, S*0.2],
+    [65.41, 17.5*S, S*0.2],
+    [65.41, 18*S, S*0.38],
+    [65.41, 19*S, S*0.38],
+    [55.00, 20*S, S*0.38],
+    [55.00, 21*S, S*0.38],
+    [55.00, 22*S, S*0.38],
+    [55.00, 23*S, S*0.38],
+    [87.31, 24*S, S*0.38],
+    [87.31, 25*S, S*0.38],
+    [87.31, 26*S, S*0.38],
+    [87.31, 27*S, S*0.38],
+    [65.41, 28*S, S*0.38],
+    [65.41, 29*S, S*0.38],
+    [65.41, 30*S, S*0.38],
+    [65.41, 31*S, S*0.85],
+  ];
+
+  // ════════════════════════════════════════
+  //  DRUMS — kick + snare + hihat
+  //  Pattern per bar (8 langkah per bar, step = STEP/2)
+  //  Kick: beat 1 & 3 | Snare: beat 2 & 4 | HiHat: setiap 8th note
+  // ════════════════════════════════════════
+  const H = STEP / 2; // 8th note duration
+  const drumBars = 8;
+  const drumPattern = [];
+  for (let bar = 0; bar < drumBars; bar++) {
+    const t = bar * BAR;
+    for (let step8 = 0; step8 < 8; step8++) {
+      const st = t + step8 * H;
+      // Hi-hat setiap 8th (agak gentle)
+      drumPattern.push({ type: 'hihat', t: st, vol: step8 % 2 === 0 ? 0.045 : 0.028 });
+      // Kick: step 0 & 4 (beat 1 & 3)
+      if (step8 === 0) drumPattern.push({ type: 'kick', t: st, vol: 0.42 });
+      if (step8 === 4) drumPattern.push({ type: 'kick', t: st, vol: 0.38 });
+      // Snare: step 2 & 6 (beat 2 & 4)
+      if (step8 === 2) drumPattern.push({ type: 'snare', t: st, vol: 0.13 });
+      if (step8 === 6) drumPattern.push({ type: 'snare', t: st, vol: 0.11 });
+      // Extra syncopation kick on bar 4 & 8 → feel more fun
+      if ((bar === 3 || bar === 7) && step8 === 3)
+        drumPattern.push({ type: 'kick', t: st, vol: 0.28 });
+    }
+  }
+
+  function scheduleLoop(startTime) {
+    melSeq.forEach(([freq, offset, dur]) => note(freq, startTime + offset, dur, 0.17));
+    bassSeq.forEach(([freq, offset, dur]) => bass(freq, startTime + offset, dur, 0.20));
+    drumPattern.forEach(({ type, t, vol }) => {
+      const at = startTime + t;
+      if (type === 'kick')  kick(at, vol);
+      if (type === 'snare') snare(at, vol);
+      if (type === 'hihat') hihat(at, vol);
+    });
+  }
+
+  scheduleLoop(loopStart);
+
+  // Re-schedule setiap ~2 detik, selalu 1 loop ke depan
+  const loopMs = LOOP * 1000;
+  let loopCount = 1;
+  const loopInterval = setInterval(() => {
+    if (!bgmNodes.master) { clearInterval(loopInterval); return; }
+    const now = ctx.currentTime;
+    const nextStart = loopStart + loopCount * LOOP;
+    if (nextStart - now < 2.5) {
+      scheduleLoop(nextStart);
+      loopCount++;
+    }
+  }, 600);
+
+  bgmNodes.allIntervals.push(loopInterval);
+  bgmNodes.masterGainNode = masterGain;
+}
+
+function stopBGM() {
+  if (!bgmNodes.master) return;
+  const ctx = getAudioCtx();
+  bgmNodes.master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.4);
+  if (bgmNodes.allIntervals) bgmNodes.allIntervals.forEach(id => clearInterval(id));
+  bgmNodes = {};
+}
+
+function toggleMusic() {
+  const btn = document.getElementById('music-btn');
+  const lbl = document.getElementById('vol-label');
+  if (!isMusicOn) {
+    startBGM();
+    isMusicOn = true;
+    btn.textContent = '🔊';
+    btn.classList.add('playing');
+    lbl.textContent = 'BGM ON';
+  } else {
+    stopBGM();
+    isMusicOn = false;
+    btn.textContent = '🔇';
+    btn.classList.remove('playing');
+    lbl.textContent = 'BGM OFF';
+  }
+}
+
+// ------ SFX: CEKRING (Benar ✅) ------
+// Bright ascending chime — coin collect feel
+function playCekring() {
+  const ctx = getAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+
+  const masterGain = ctx.createGain();
+  masterGain.gain.value = 0.55;
+  masterGain.connect(ctx.destination);
+
+  // 3-note ascending jingle: C5 → E5 → G5
+  const notes = [523.25, 659.25, 783.99];
+  notes.forEach((freq, i) => {
+    const now = ctx.currentTime + i * 0.1;
+    // Bell-like: fundamental + 2 partials
+    [freq, freq * 2.756, freq * 5.404].forEach((partial, j) => {
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = partial;
+      env.gain.setValueAtTime(0, now);
+      env.gain.linearRampToValueAtTime(0.6 / (j + 1), now + 0.01);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.4 - j * 0.1);
+      osc.connect(env);
+      env.connect(masterGain);
+      osc.start(now);
+      osc.stop(now + 0.5);
+    });
+  });
+
+  // Extra sparkle: high shimmer
+  const shimmerFreqs = [2093, 2637, 3136];
+  shimmerFreqs.forEach((freq, i) => {
+    const now = ctx.currentTime + 0.28 + i * 0.04;
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    env.gain.setValueAtTime(0, now);
+    env.gain.linearRampToValueAtTime(0.08, now + 0.01);
+    env.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    osc.connect(env);
+    env.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + 0.2);
+  });
+}
+
+// ------ SFX: TETOT (Salah ❌) ------
+// Low descending buzzer — wrong answer / game show feel
+function playTetot() {
+  const ctx = getAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+
+  const masterGain = ctx.createGain();
+  masterGain.gain.value = 0.45;
+  masterGain.connect(ctx.destination);
+
+  // Low descending buzz: two notes dropping
+  const buzzNotes = [
+    { freq: 220, start: 0, dur: 0.18 },
+    { freq: 155, start: 0.2, dur: 0.25 }
+  ];
+
+  buzzNotes.forEach(({ freq, start, dur }) => {
+    const now = ctx.currentTime + start;
+    // Sawtooth for harsh buzzer
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.linearRampToValueAtTime(freq * 0.85, now + dur);
+    filter.type = 'lowpass';
+    filter.frequency.value = 600;
+    env.gain.setValueAtTime(0.7, now);
+    env.gain.linearRampToValueAtTime(0.001, now + dur);
+    osc.connect(filter);
+    filter.connect(env);
+    env.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + dur + 0.05);
+  });
+
+  // Low thud underneath
+  const thudOsc = ctx.createOscillator();
+  const thudEnv = ctx.createGain();
+  thudOsc.type = 'sine';
+  thudOsc.frequency.setValueAtTime(80, ctx.currentTime);
+  thudOsc.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.3);
+  thudEnv.gain.setValueAtTime(0.8, ctx.currentTime);
+  thudEnv.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+  thudOsc.connect(thudEnv);
+  thudEnv.connect(masterGain);
+  thudOsc.start(ctx.currentTime);
+  thudOsc.stop(ctx.currentTime + 0.35);
+}
+
+// =============================================
+//  GAME DATA
+// =============================================
+const scenarios = [
+  { id: 1, text: "Minta maaf langsung ke senior karena salah ketik tanggal", type: "deposit",
+    explanation: "Ini SETORAN. Mengakui kesalahan menunjukkan integritas tinggi dan justru meningkatkan rasa hormat orang lain." },
+  { id: 2, text: "Ikut-ikutan gosipin staf divisi lain di pantry", type: "withdrawal",
+    explanation: "Ini TARIKAN. Gosip merusak loyalitas tim dan membuat orang ragu dengan rahasia mereka sendiri di depanmu." },
+  { id: 3, text: "Tepat waktu kirim laporan mingguan", type: "deposit",
+    explanation: "Ini SETORAN. Menepati janji-janji kecil membangun reputasi bahwa kamu orang yang sangat bisa diandalkan." },
+  { id: 4, text: "Minta tolong dokumen tanpa bilang tolong/terima kasih", type: "withdrawal",
+    explanation: "Ini TARIKAN. Kurang etika dasar mengikis kenyamanan hubungan dan membuat orang merasa hanya dimanfaatkan." },
+  { id: 5, text: "Menepati janji meeting tepat waktu", type: "deposit",
+    explanation: "Ini SETORAN. Menghargai waktu orang lain adalah bentuk penghormatan tertinggi dalam profesionalisme." }
+];
+
+remaining = scenarios.length;
+
+// =============================================
+//  GAME FLOW
+// =============================================
+function goToStory() {
+  playerName = document.getElementById('player-input').value.trim();
+  if (!playerName) { alert("Sebutkan namamu dulu ya!"); return; }
+
+  // Auto-start BGM on first interaction
+  if (!isMusicOn) {
+    startBGM();
+    isMusicOn = true;
+    document.getElementById('music-btn').textContent = '🔊';
+    document.getElementById('music-btn').classList.add('playing');
+    document.getElementById('vol-label').textContent = 'BGM ON';
+  }
+
+  switchScreen('screen-welcome', 'screen-story');
+  nextDialogue();
+}
+
+const dialogues = [];
+function buildDialogues() {
+  dialogues.length = 0;
+  dialogues.push(
+    `Halo, ${playerName}! Saya Dara, RM Expert di Synergy Bank. 👋`,
+    "Setiap perbuatan di kantor akan dicatat di Rekening Bank Emosimu.",
+    "Kamu punya 3 nyawa. Jika salah memilah, saldo kepercayaanmu akan bocor!",
+    "Siap menabung kepercayaan? Tarik kartu ke kotak yang tepat, ya!"
+  );
+}
+
+function nextDialogue() {
+  if (!dialogues.length) buildDialogues();
+  if (step < dialogues.length) {
+    document.getElementById('vn-text').innerText = dialogues[step];
+    step++;
+  } else {
+    switchScreen('screen-story', 'screen-game');
+    document.getElementById('status-bar').classList.remove('hidden');
+    renderCards();
+  }
+}
+
+function switchScreen(from, to) {
+  document.getElementById(from).classList.remove('active');
+  document.getElementById(to).classList.add('active');
+}
+
+function renderCards() {
+  const pile = document.getElementById('cards-pile');
+  pile.innerHTML = '';
+  [...scenarios].sort(() => Math.random() - 0.5).forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerText = s.text;
+    card.draggable = true;
+    card.id = `card-${s.id}`;
+    card.dataset.type = s.type;
+    card.addEventListener('dragstart', e => e.dataTransfer.setData("text", e.target.id));
+    pile.appendChild(card);
+  });
+}
+
+// =============================================
+//  DRAG & DROP
+// =============================================
+function allowDrop(e) {
+  e.preventDefault();
+  const zone = e.target.closest('.drop-zone');
+  if (zone) zone.classList.add('over');
+}
+function onDragLeave(e) {
+  const zone = e.target.closest('.drop-zone');
+  if (zone) zone.classList.remove('over');
+}
+function onDrop(e, zoneType) {
+  e.preventDefault();
+  const zone = e.target.closest('.drop-zone');
+  if (zone) zone.classList.remove('over');
+
+  const cardId = e.dataTransfer.getData("text");
+  const card = document.getElementById(cardId);
+  if (!card) return;
+
+  if (card.dataset.type === zoneType) {
+    // ✅ BENAR
+    score += 20;
+    document.getElementById('score-val').innerText = score;
+    playCekring();
+    createCoinPop(zone);
+    showToast("Cekring! Setoran masuk! 💰", "var(--deposit)");
+    card.remove();
+    remaining--;
+    if (remaining === 0) finish(true);
+  } else {
+    // ❌ SALAH
+    lives--;
+    playTetot();
+    updateLivesUI();
+    const gc = document.getElementById('game-container');
+    gc.classList.add('shake');
+    setTimeout(() => gc.classList.remove('shake'), 600);
+    showToast("Tetot! Saldo bocor! ❌", "var(--withdrawal)");
+    if (lives === 0) finish(false);
+  }
+}
+
+function createCoinPop(zone) {
+  const coin = document.createElement('div');
+  coin.className = 'coin-pop';
+  coin.innerText = '💰';
+  zone.appendChild(coin);
+  setTimeout(() => coin.remove(), 800);
+}
+
+function updateLivesUI() {
+  document.getElementById('lives-ui').innerText =
+    "❤️".repeat(Math.max(0, lives)) + "🖤".repeat(3 - Math.max(0, lives));
+}
+
+function showToast(msg, color) {
+  const t = document.getElementById('toast');
+  t.innerText = msg;
+  t.style.backgroundColor = color;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 1200);
+}
+
+function finish(isWin) {
+  switchScreen('screen-game', 'screen-result');
+  document.getElementById('status-bar').classList.add('hidden');
+
+  document.getElementById('result-title').innerText =
+    isWin ? "Misi Berhasil! 🏆" : "Saldo Minus! 📉";
+
+  const list = document.getElementById('feedback-list');
+  list.innerHTML = '';
+  scenarios.forEach(s => {
+    const item = document.createElement('div');
+    item.className = 'feedback-item';
+    item.innerHTML = `
+      <span class="feedback-tag ${s.type === 'deposit' ? 'tag-deposit' : 'tag-withdrawal'}">
+        ${s.type.toUpperCase()}
+      </span>
+      <p style="font-weight:800;font-size:0.9rem;margin:6px 0 4px;">"${s.text}"</p>
+      <p style="font-size:0.8rem;color:#555;line-height:1.5;">${s.explanation}</p>
+    `;
+    list.appendChild(item);
+  });
+
+  // Play finishing jingle
+  if (isWin) {
+    setTimeout(() => {
+      [0,1,2,3,4].forEach(i => {
+        setTimeout(() => playCekring(), i * 160);
+      });
+    }, 300);
+  } else {
+    setTimeout(() => playTetot(), 300);
+  }
+}
+
+// Cleanup drag-over on global dragleave
+document.addEventListener("dragleave", e => {
+  const zone = e.target.closest?.('.drop-zone');
+  if (zone) zone.classList.remove('over');
+});
+</script>
+</body>
+</html>
