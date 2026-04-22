@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bank Emosi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@0.344.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; overflow-x: hidden; }
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        @keyframes pulse-green {
+            0%   { transform: scale(1);   color: white; }
+            50%  { transform: scale(1.1); color: #4ade80; }
+            100% { transform: scale(1);   color: white; }
+        }
+        .animate-pulse-green { animation: pulse-green 0.5s ease-in-out; }
+        @keyframes shake {
+            0%,100% { transform: translateX(0); }
+            25%     { transform: translateX(-5px); }
+            75%     { transform: translateX(5px); }
+        }
+        .animate-shake { animation: shake 0.3s ease-in-out; }
+        @keyframes float {
+            0%,100% { transform: translateY(0); }
+            50%     { transform: translateY(-10px); }
+        }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .scenario-container {
+            max-height: 180px; overflow-y: auto; margin-bottom: 1rem;
+            display: flex; align-items: center; justify-content: center;
+        }
+        @media (min-height: 750px) { .scenario-container { max-height: 220px; } }
+
+        /* Music visualizer */
+        @keyframes viz1 { 0%,100%{height:5px}  50%{height:17px} }
+        @keyframes viz2 { 0%,100%{height:13px} 50%{height:5px}  }
+        @keyframes viz3 { 0%,100%{height:8px}  50%{height:20px} }
+        @keyframes viz4 { 0%,100%{height:15px} 50%{height:4px}  }
+        .vbar { width:3px; border-radius:2px; background:currentColor; }
+        .vbar:nth-child(1){animation:viz1 0.65s ease-in-out infinite}
+        .vbar:nth-child(2){animation:viz2 0.50s ease-in-out infinite 0.10s}
+        .vbar:nth-child(3){animation:viz3 0.70s ease-in-out infinite 0.20s}
+        .vbar:nth-child(4){animation:viz4 0.55s ease-in-out infinite 0.05s}
+        .viz-paused .vbar { animation-play-state:paused !important; height:4px !important; }
+    </style>
+</head>
+<body class="bg-indigo-50 text-gray-800">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+/* ==========================================================
+   AUDIO ENGINE
+   ========================================================== */
+const AudioEngine = {
+    ctx: null,
+    masterGain: null,
+    sfxGain: null,
+    isMuted: false,
+    bgPlaying: false,
+    bgTimer: null,
+    barIndex: 0,
+
+    async init() {
+        if (!this.ctx) {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            // Master bus for BGM
+            this.masterGain = this.ctx.createGain();
+            this.masterGain.gain.setValueAtTime(0.40, this.ctx.currentTime);
+            this.masterGain.connect(this.ctx.destination);
+            // Separate bus for SFX
+            this.sfxGain = this.ctx.createGain();
+            this.sfxGain.gain.setValueAtTime(1.0, this.ctx.currentTime);
+            this.sfxGain.connect(this.ctx.destination);
+        }
+        if (this.ctx.state === 'suspended') await this.ctx.resume();
+    },
+
+    /* Low-level note: schedule an oscillator note */
+    _n(freq, t0, dur, type, vol, bus) {
+        if (!this.ctx) return;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = type || 'sine';
+        o.frequency.setValueAtTime(freq, t0);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.linearRampToValueAtTime(vol, t0 + Math.min(0.025, dur * 0.15));
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        o.connect(g);
+        g.connect(bus === 'sfx' ? this.sfxGain : this.masterGain);
+        o.start(t0);
+        o.stop(t0 + dur + 0.02);
+    },
+
+    /* SFX: click, profit, loss */
+    playSFX(type) {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        if (type === 'click') {
+            this._n(1100, now,       0.06, 'sine',     0.15, 'sfx');
+        } else if (type === 'profit') {
+            this._n(523,  now,       0.12, 'triangle', 0.20, 'sfx');
+            this._n(659,  now+0.10,  0.12, 'triangle', 0.20, 'sfx');
+            this._n(784,  now+0.20,  0.25, 'triangle', 0.20, 'sfx');
+        } else if (type === 'loss') {
+            this._n(300,  now,       0.10, 'sawtooth', 0.18, 'sfx');
+            this._n(190,  now+0.10,  0.15, 'sawtooth', 0.14, 'sfx');
+            this._n(110,  now+0.22,  0.22, 'sawtooth', 0.10, 'sfx');
+        }
+    },
+
+    /* Start the background music loop */
+    startBGM() {
+        if (!this.ctx || this.bgPlaying) return;
+        this.bgPlaying = true;
+        this.barIndex  = 0;
+        this._playBar(this.ctx.currentTime + 0.10);
+    },
+
+    /* Schedule one bar then queue the next */
+    _playBar(t0) {
+        if (!this.bgPlaying || !this.ctx) return;
+
+        const BPM = 92;
+        const b   = 60 / BPM;   // beat duration (s)
+        const bar = b * 4;      // bar duration (s)
+
+        /* --- Frequency table --- */
+        const H = (note, oct) => {
+            const semis = {C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+            const [, n, acc, o] = note.match(/^([A-G])([b#]?)(\d+)$/);
+            const semi = semis[n] + (acc==='#'?1:acc==='b'?-1:0) + (parseInt(o||oct)+1)*12;
+            return 440 * Math.pow(2, (semi-69)/12);
+        };
+        const F = {
+            C1:H('C1'), G1:H('G1'), Ab1:H('Ab1'), Eb1:H('Eb1'), Bb1:H('Bb1'),
+            C2:H('C2'), D2:H('D2'), Eb2:H('Eb2'), F2:H('F2'),
+            G2:H('G2'), Ab2:H('Ab2'), Bb2:H('Bb2'),
+            C3:H('C3'), D3:H('D3'), Eb3:H('Eb3'), F3:H('F3'),
+            G3:H('G3'), Ab3:H('Ab3'), Bb3:H('Bb3'), B3:H('B3'),
+            C4:H('C4'), D4:H('D4'), Eb4:H('Eb4'), F4:H('F4'),
+            G4:H('G4'), Ab4:H('Ab4'), Bb4:H('Bb4'),
+            C5:H('C5'), D5:H('D5'), Eb5:H('Eb5'), F5:H('F5'),
+        };
+
+        /* --- 4-bar progression: Cm → Ab → Eb → Bb --- */
+        const prog = [
+            { sub:F.C1,  bass:[F.C2, F.G2, F.C2, F.G2 ], pads:[F.C3, F.Eb3, F.G3,  F.Bb3] },
+            { sub:F.Ab1, bass:[F.Ab2,F.Eb2,F.Ab2,F.C3  ], pads:[F.Ab3,F.C4,  F.Eb4, F.Ab4] },
+            { sub:F.Eb1, bass:[F.Eb2,F.Bb2,F.Eb2,F.Bb2 ], pads:[F.Eb3,F.G3,  F.Bb3, F.Eb4] },
+            { sub:F.Bb1, bass:[F.Bb2,F.F2, F.Bb2,F.D3  ], pads:[F.Bb3,F.D4,  F.F4,  F.Bb4] },
+        ];
+        const ch = prog[this.barIndex % 4];
+
+        /* --- SUB BASS drone --- */
+        this._n(ch.sub, t0, bar*0.96, 'sine', 0.22);
+
+        /* --- BASS LINE: 4 punchy beats --- */
+        ch.bass.forEach((freq, i) => {
+            this._n(freq, t0 + i*b, b*0.60, 'sine', 0.30);
+        });
+
+        /* --- PADS: lush chord swell --- */
+        ch.pads.forEach((freq, i) => {
+            const swt = t0 + i*0.04;
+            this._n(freq,   swt,      bar*0.88, 'triangle', 0.055);
+            this._n(freq*2, swt+0.12, bar*0.70, 'triangle', 0.018);
+        });
+
+        /* --- KICK: beats 1 & 3 --- */
+        [0, 2].forEach(beat => {
+            const t = t0 + beat*b;
+            this._n(90,  t, 0.28, 'sine', 0.35);
+            this._n(50,  t, 0.40, 'sine', 0.22);
+            this._n(220, t, 0.05, 'sine', 0.12); // click transient
+        });
+
+        /* --- SNARE: beats 2 & 4 --- */
+        [1, 3].forEach(beat => {
+            const t = t0 + beat*b;
+            [[200,0.028],[320,0.020],[460,0.016],[600,0.012]].forEach(([f,v]) =>
+                this._n(f + Math.random()*50, t, 0.11, 'sawtooth', v)
+            );
+        });
+
+        /* --- HI-HAT: 8th notes --- */
+        for (let i = 0; i < 8; i++) {
+            const t   = t0 + i*(b/2);
+            const vol = (i%4===0) ? 0.050 : (i%2===0 ? 0.028 : 0.014);
+            this._n(7000 + Math.random()*4000, t, 0.035, 'square', vol);
+        }
+        // Open hi-hat beat 3.5
+        this._n(9500 + Math.random()*1000, t0 + 3.5*b, 0.14, 'square', 0.022);
+
+        /* --- MELODY: one phrase per bar --- */
+        const barMod = this.barIndex % 4;
+        const melodies = [
+            [F.C4, F.Eb4, F.G4, F.Bb4, F.Ab4, F.G4, F.Eb4, F.C4],  // bar 0: Cm ascending
+            [F.Ab4,F.C5,  F.Eb5,F.C5,  F.Ab4, F.G4, F.F4,  F.Eb4],  // bar 1: Ab flourish
+            [F.Eb4,F.G4,  F.Bb4,F.G4,  F.Eb4, F.D4, F.Eb4, F.F4 ],  // bar 2: Eb resolve
+            [F.Bb4,F.F4,  F.D4, F.Bb3, F.C4,  F.D4, F.Eb4, F.F4 ],  // bar 3: Bb cadence
+        ];
+        melodies[barMod].forEach((freq, i) => {
+            this._n(freq, t0 + i*(b/2), b*0.42, 'triangle', 0.058);
+        });
+
+        /* --- COUNTER-MELODY: every 4 bars (after intro) --- */
+        if (this.barIndex > 0 && barMod === 0) {
+            const cmel = [F.G4,F.F4,F.Eb4,F.D4,F.C4,F.D4,F.Eb4,F.G4];
+            cmel.forEach((freq, i) => {
+                this._n(freq, t0 + i*(b/2) + b*0.25, b*0.35, 'sine', 0.030);
+            });
+        }
+
+        this.barIndex++;
+
+        /* Queue next bar — fire slightly before current bar ends for gapless looping */
+        const delay = Math.max(50, (bar - 0.20) * 1000);
+        this.bgTimer = setTimeout(() => {
+            if (this.bgPlaying && this.ctx) {
+                this._playBar(this.ctx.currentTime + 0.10);
+            }
+        }, delay);
+    },
+
+    stopBGM() {
+        this.bgPlaying = false;
+        if (this.bgTimer) { clearTimeout(this.bgTimer); this.bgTimer = null; }
+    },
+
+    setMute(mute) {
+        this.isMuted = mute;
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        if (this.masterGain) this.masterGain.gain.setTargetAtTime(mute ? 0 : 0.40, now, 0.15);
+        if (this.sfxGain)    this.sfxGain.gain.setTargetAtTime(   mute ? 0 : 1.0,  now, 0.15);
+    },
+};
+
+/* ==========================================================
+   ICON COMPONENT
+   ========================================================== */
+const Icon = ({ name, size=24, className='' }) => {
+    const ref = useRef(null);
+    useEffect(() => {
+        if (window.lucide && ref.current) {
+            ref.current.innerHTML = `<i data-lucide="${name}" style="width:${size}px;height:${size}px;"></i>`;
+            window.lucide.createIcons({ node: ref.current });
+        }
+    }, [name, size]);
+    return <span ref={ref} className={`inline-flex items-center justify-center ${className}`}
+                 style={{ width:size, height:size, minWidth:size, minHeight:size }} />;
+};
+
+/* ==========================================================
+   SCENARIOS
+   ========================================================== */
+const originalScenarios = [
+    { id:1, front:"Kamu berpapasan dengan atasan di lorong. Kamu menunduk dan pura-pura sibuk membalas chat di HP yang sebenarnya layarnya mati.", back:"Menghindari kontak mata membuatmu terlihat tidak peduli atau sombong, meskipun aslinya kamu hanya canggung. Ini merugikan portofolio citra profesionalmu.", type:"minus", hint:"Menghindari interaksi sosial dasar biasanya dianggap sebagai tanda kurangnya kepercayaan diri atau ketidaksopanan." },
+    { id:2, front:"Jarak tinggal 3 langkah, kamu melakukan kontak mata sejenak, mengangguk, dan menyapa, 'Pagi, Pak Budi.'", back:"Eksekusi tepat! Kamu menerapkan Aturan 3 Langkah. Sapaan singkat ini adalah investasi harian yang membuat likuiditas komunikasi kerja jadi lebih cair.", type:"nabung", hint:"Menyapa secara proaktif membangun jembatan komunikasi kecil yang sangat berharga." },
+    { id:3, front:"Kamu butuh data segera. Kamu langsung datang ke meja rekan kerja dan bertanya, 'Mana file laporan minggu lalu? Saya butuh sekarang.'", back:"Kamu melakukan aksi 'Jual' tanpa memiliki saldo emosi. Tanpa Interupsi Sopan, rekan kerja merasa terganggu, sehingga 'nilai jual' permintaanmu jadi rendah.", type:"minus", hint:"Langsung meminta tanpa basa-basi atau melihat situasi rekan kerja seringkali dianggap mengganggu produktivitas mereka." },
+    { id:4, front:"Di pantry, kamu bertanya ke rekan divisi lain, 'Gimana urusan sekolah anak kemarin? Jadi masuk sekolah yang itu?' tanpa ada permintaan bantuan setelahnya.", back:"Inilah 'Beli' yang tulus. Kamu membangun portofolio hubungan tanpa kepentingan jangka pendek. Orang akan jauh lebih senang membantumu nanti.", type:"nabung", hint:"Menunjukkan minat pada kehidupan personal rekan kerja tanpa ada 'udang di balik batu' adalah cara menabung emosi terbaik." },
+    { id:5, front:"Kamu sudah menyapa dengan ramah, tapi rekan kerjamu hanya diam dan menunjukkan muka ketus. Kamu lalu membalas dengan muka ketus juga.", back:"Loss Trading. Dengan ikut ketus, kamu mempertebal 'Tembok Es'. Tetaplah bersikap sopan agar portofolio etika kamu tetap terjaga di mata orang lain.", type:"minus", hint:"Membalas perilaku buruk dengan perilaku buruk hanya akan merusak reputasi profesionalmu sendiri." },
+    { id:6, front:"Mengirim pesan: 'Terima kasih ya Mbak sudah bantu cek datanya dengan cepat. Saya jadi nggak perlu lembur malam ini.'", back:"Apresiasi spesifik adalah dividen tinggi. Kamu menunjukkan dampak positif bantuan mereka, sehingga rekan kerja merasa investasinya berharga.", type:"nabung", hint:"Terima kasih yang spesifik memberitahu orang lain bahwa bantuan mereka benar-benar berdampak." },
+    { id:7, front:"Kamu masuk ke ruang rapat yang sudah ramai, lalu langsung duduk di pojok tanpa menyapa atau memberikan tanda keberadaanmu pada yang lain.", back:"Melewatkan sapaan di forum membuatmu dianggap sebagai orang asing. Ini mengurangi 'Market Share' sosialmu di dalam tim.", type:"minus", hint:"Mengakui keberadaan orang lain di dalam ruangan adalah bentuk penghormatan dasar dalam tim." },
+    { id:8, front:"Sebelum meminta bantuan di meja rekan, kamu berdiri sebentar di samping mejanya dan berkata, 'Permisi Pak, maaf mengganggu waktunya sebentar, boleh saya tanya sesuatu?'", back:"Penerapan Jurus Interupsi Sopan adalah investasi moral. Menghargai waktu orang lain akan meningkatkan kepercayaan rekan kerja kepadamu.", type:"nabung", hint:"Memberi ruang bagi orang lain untuk menghentikan pekerjaannya sejenak adalah etika kerja yang sangat dihargai." },
+    { id:9, front:"Kamu memberikan jempol atau komentar positif saat melihat rekan kerja berhasil menyelesaikan presentasi atau tugas berat di grup chat kantor.", back:"Apresiasi publik adalah 'bunga majemuk' yang terus bertambah. Kamu membangun reputasi sebagai trader hubungan yang suportif.", type:"nabung", hint:"Dukungan publik memperkuat ikatan tim secara kolektif." },
+    { id:10, front:"Kamu hanya mau menyapa orang yang posisinya lebih tinggi (atasan), sementara kepada petugas keamanan atau OB, kamu lewat begitu saja tanpa menoleh.", back:"Strategi trading yang bias akan menghancurkan saldo emosimu. Menghargai semua orang adalah kunci portofolio emosi yang stabil.", type:"minus", hint:"Karakter asli seseorang terlihat dari cara mereka memperlakukan orang yang tidak bisa memberikan keuntungan materi langsung bagi mereka." }
+];
+
+const shuffle = arr => {
+    const a = [...arr];
+    for (let i = a.length-1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+    return a;
+};
+
+/* ==========================================================
+   APP
+   ========================================================== */
+function App() {
+    const [isLoggedIn,    setIsLoggedIn]    = useState(false);
+    const [isLoggingIn,   setIsLoggingIn]   = useState(false);
+    const [isWelcomed,    setIsWelcomed]    = useState(false);
+    const [fullName,      setFullName]      = useState('');
+    const [systemOtp,     setSystemOtp]     = useState('');
+    const [userOtpInput,  setUserOtpInput]  = useState('');
+    const [loginError,    setLoginError]    = useState('');
+    const [isMuted,       setIsMuted]       = useState(false);
+    const [showHint,      setShowHint]      = useState(false);
+    const [scenarios,     setScenarios]     = useState([]);
+    const [idx,           setIdx]           = useState(0);
+    const [isFlipped,     setIsFlipped]     = useState(false);
+    const [balance,       setBalance]       = useState(0);
+    const [showResult,    setShowResult]    = useState(false);
+    const [predictions,   setPredictions]   = useState(new Array(originalScenarios.length).fill(null));
+    const [history,       setHistory]       = useState([]);
+    const [balanceAnim,   setBalanceAnim]   = useState(false);
+
+    useEffect(() => {
+        if (!isLoggedIn) setSystemOtp(Math.floor(1000+Math.random()*9000).toString());
+        setScenarios(shuffle(originalScenarios));
+    }, [isLoggedIn]);
+
+    const toggleMute = () => {
+        const m = !isMuted;
+        setIsMuted(m);
+        AudioEngine.setMute(m);
+        if (!m) AudioEngine.playSFX('click');
+    };
+
+    const handleLogin = async e => {
+        e.preventDefault();
+        if (!fullName.trim()) { setLoginError('Silakan masukkan Nama Lengkap Anda.'); return; }
+        if (userOtpInput !== systemOtp) {
+            setLoginError('Kode OTP tidak sesuai.');
+            await AudioEngine.init();
+            AudioEngine.playSFX('loss');
+            return;
+        }
+        setLoginError('');
+        setIsLoggingIn(true);
+        await AudioEngine.init();
+        AudioEngine.playSFX('profit');
+        setTimeout(() => { setIsLoggingIn(false); setIsLoggedIn(true); AudioEngine.startBGM(); }, 1500);
+    };
+
+    const fmtIDR = n => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',minimumFractionDigits:0}).format(n);
+    const dynFont = t => t.length>120?'text-base':t.length>80?'text-lg':t.length>50?'text-xl':'text-2xl';
+
+    const predict = type => {
+        AudioEngine.playSFX('click');
+        const p = [...predictions]; p[idx] = type; setPredictions(p);
+    };
+
+    const flip = () => {
+        if (!predictions[idx] || isFlipped) return;
+        const correct = predictions[idx] === scenarios[idx].type;
+        const delta   = correct ? 10000 : -10000;
+        AudioEngine.playSFX('click');
+        setTimeout(() => AudioEngine.playSFX(correct?'profit':'loss'), 300);
+        setBalanceAnim(true); setTimeout(()=>setBalanceAnim(false),500);
+        setBalance(p => p + delta);
+        setHistory(p => [{ id:Date.now(), scenarioIdx:idx, isCorrect:correct, amount:delta, title:correct?'Eksekusi Profit':'Trading Loss' }, ...p]);
+        setIsFlipped(true);
+    };
+
+    const next = () => {
+        AudioEngine.playSFX('click');
+        setIsFlipped(false);
+        setTimeout(() => {
+            if (idx < scenarios.length-1) { setIdx(p=>p+1); }
+            else { if (balance>0) confetti({particleCount:150,spread:70,origin:{y:0.6}}); setShowResult(true); }
+        }, 400);
+    };
+
+    /* ---- LOADING ---- */
+    if (isLoggingIn) return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-indigo-600 text-white">
+            <div className="animate-float mb-8"><Icon name="piggy-bank" size={80}/></div>
+            <h2 className="text-2xl font-black mb-2 animate-pulse uppercase tracking-widest text-center">Membuka Akun Trading...</h2>
+            <p className="text-indigo-200 text-sm italic text-center px-4">Mengotorisasi akses untuk {fullName}</p>
+        </div>
+    );
+
+    /* ---- LOGIN ---- */
+    if (!isLoggedIn) return (
+        <div className="min-h-screen flex items-center justify-center p-4">
+            <div className="bg-white p-8 md:p-12 rounded-[3.5rem] shadow-2xl max-w-md w-full border border-gray-100 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full -mr-16 -mt-16 opacity-50"/>
+                <div className="relative z-10">
+                    <div className="flex justify-center mb-6">
+                        <div className="bg-indigo-600 p-5 rounded-3xl shadow-xl animate-float"><Icon name="piggy-bank" size={48} className="text-white"/></div>
+                    </div>
+                    <h1 className="text-4xl font-black text-indigo-950 mb-1 text-center uppercase">Bank Emosi</h1>
+                    <p className="text-indigo-400 text-[11px] font-bold mb-8 leading-relaxed px-4 text-center">
+                        Mari Trading bersama Bank Emosi,<br/>Dapatkan poin kredit untuk saldo emosi dalam hubungan pekerjaan Anda
+                    </p>
+                    <form onSubmit={handleLogin} className="space-y-5 text-left">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-indigo-900/40 uppercase tracking-widest ml-4 block">Nama Lengkap</label>
+                            <div className="relative">
+                                <div className="absolute left-5 top-1/2 -translate-y-1/2 text-indigo-300"><Icon name="user" size={20}/></div>
+                                <input type="text" placeholder="Ketik nama anda..." className="w-full bg-gray-50 border-2 border-transparent focus:border-indigo-400 focus:bg-white outline-none rounded-2xl py-4 pl-14 pr-4 font-bold transition-all text-indigo-950" value={fullName} onChange={e=>setFullName(e.target.value)}/>
+                            </div>
+                        </div>
+                        <div className="bg-indigo-50/50 p-6 rounded-3xl border-2 border-indigo-100 shadow-inner">
+                            <p className="text-[9px] font-black text-indigo-400 uppercase mb-3 text-center tracking-widest">Security OTP:</p>
+                            <div className="bg-white py-3 rounded-2xl border flex items-center justify-center gap-4">
+                                <Icon name="shield-check" size={20} className="text-indigo-600"/>
+                                <span className="text-4xl font-black tracking-[0.4em] text-indigo-950 italic">{systemOtp}</span>
+                            </div>
+                        </div>
+                        <div className="space-y-2 text-center">
+                            <label className="text-[10px] font-black text-indigo-900/40 uppercase tracking-widest block mb-1">Masukkan Kode OTP</label>
+                            <input type="text" maxLength={4} className="w-full bg-gray-50 border-2 border-transparent focus:border-indigo-400 focus:bg-white outline-none rounded-2xl py-4 px-4 text-center font-black text-3xl tracking-[0.3em]" value={userOtpInput} onChange={e=>setUserOtpInput(e.target.value.replace(/\D/g,''))}/>
+                        </div>
+                        {loginError && <div className="bg-red-50 text-red-500 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 animate-shake"><Icon name="alert-circle" size={16}/>{loginError}</div>}
+                        <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-5 rounded-2xl shadow-xl active:scale-95 text-sm uppercase tracking-widest flex items-center justify-center gap-3">
+                            <Icon name="log-in" size={20}/> MASUK AKUN BANK
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    );
+
+    /* ---- WELCOME ---- */
+    if (!isWelcomed) return (
+        <div className="min-h-screen flex items-center justify-center p-4 bg-indigo-50">
+            <div className="bg-white p-10 md:p-16 rounded-[4rem] shadow-2xl max-w-2xl w-full text-center border-4 border-white ring-[12px] ring-indigo-100">
+                <div className="bg-indigo-100 p-6 rounded-full inline-block mb-8 text-indigo-600"><Icon name="award" size={64}/></div>
+                <h2 className="text-3xl font-black text-indigo-950 mb-6 uppercase">Selamat datang {fullName}! 👋</h2>
+                <p className="text-lg font-medium text-gray-600 leading-relaxed mb-10 px-4">
+                    Yuk belajar <span className="text-indigo-600 font-bold">Trading Emosi</span> dalam Hubungan Pekerjaanmu lewat permainan <span className="italic font-bold text-indigo-900">Dialog Cards</span>.
+                    Pilih apakah sebuah tindakan nyata di kantor bisa bikin saldo Emosi Hubunganmu <span className="text-green-600 font-bold underline">profit</span> atau <span className="text-red-600 font-bold underline">minus</span>.
+                </p>
+                <button onClick={()=>{AudioEngine.playSFX('click');setIsWelcomed(true);}} className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-6 px-12 rounded-[2.5rem] shadow-xl text-lg uppercase tracking-widest active:scale-95 transition-all flex items-center gap-4 mx-auto">
+                    Lanjutkan <Icon name="play-circle" size={24}/>
+                </button>
+            </div>
+        </div>
+    );
+
+    /* ---- RESULT ---- */
+    if (showResult) {
+        const pos = balance >= 0;
+        return (
+            <div className="min-h-screen flex items-center justify-center p-6">
+                <div className="bg-white p-12 rounded-[4rem] shadow-2xl max-w-xl w-full text-center border-4 border-white ring-[12px] ring-indigo-50">
+                    <div className="flex justify-center mb-6">
+                        {pos ? <Icon name="trophy" size={80} className="text-yellow-500 animate-float"/> : <Icon name="alert-triangle" size={80} className="text-red-500 animate-pulse"/>}
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-400 uppercase tracking-widest mb-1">Status Portofolio Emosi</h2>
+                    <h3 className="text-4xl font-black mb-6 text-indigo-950 uppercase leading-none">Hasil Trading</h3>
+                    <div className="bg-gray-50 p-6 rounded-[2rem] border mb-8">
+                        <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Total Ekuitas</p>
+                        <p className={`text-4xl font-black ${pos?'text-green-500':'text-red-500'}`}>{fmtIDR(balance)}</p>
+                    </div>
+                    <p className="text-lg font-medium mb-10 text-gray-500 leading-relaxed px-4">
+                        {pos ? `Selamat ${fullName}! Analisis pasar menunjukkan hubungan kerjamu sudah baik. Tingkatkan terus saldo hubunganmu!`
+                             : `Waduh ${fullName}, portofolio emosimu merah. Artinya kamu perlu banyak belajar menjalin hubungan baik dengan lingkungan kerja.`}
+                    </p>
+                    <button onClick={()=>{AudioEngine.playSFX('click');window.location.reload();}} className="w-full bg-indigo-600 text-white font-black py-6 rounded-[2rem] shadow-xl active:scale-95 flex items-center justify-center gap-3 uppercase tracking-widest text-sm">
+                        <Icon name="rotate-ccw" size={24}/> Reset Terminal
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    if (!scenarios.length) return null;
+    const sc      = scenarios[idx];
+    const correct = predictions[idx] === sc.type;
+
+    /* ---- GAME ---- */
+    return (
+        <div className="min-h-screen p-4 md:p-8">
+            <div className="max-w-6xl mx-auto">
+
+                {/* HEADER */}
+                <header className="flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
+                    <div className="bg-white px-6 py-3 rounded-full shadow-sm flex items-center gap-4">
+                        <div className="bg-indigo-600 p-2 rounded-full"><Icon name="piggy-bank" size={20} className="text-white"/></div>
+                        <h1 className="text-xl font-black text-indigo-950 tracking-tight uppercase">BANK EMOSI</h1>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        {/* BGM Toggle Button with animated visualizer */}
+                        <button
+                            onClick={toggleMute}
+                            className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl transition-all shadow-sm border font-bold text-xs uppercase tracking-wider ${isMuted?'bg-red-50 border-red-100 text-red-400':'bg-white border-indigo-100 text-indigo-600'}`}
+                            title={isMuted?'Aktifkan Musik':'Matikan Musik'}
+                        >
+                            <Icon name={isMuted?'volume-x':'music'} size={15}/>
+                            <span className="hidden sm:inline">{isMuted?'MUTE':'BGM ON'}</span>
+                            {/* Animated bars — shown only when NOT muted */}
+                            <div className={`flex items-end gap-[3px] h-4 ${isMuted?'viz-paused':''}`}>
+                                <div className="vbar" style={{height:'5px'}}/>
+                                <div className="vbar" style={{height:'12px'}}/>
+                                <div className="vbar" style={{height:'7px'}}/>
+                                <div className="vbar" style={{height:'14px'}}/>
+                            </div>
+                        </button>
+                        <div className="text-right hidden sm:block">
+                            <p className="text-xs font-black text-indigo-950 uppercase">{fullName}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Professional Trader</p>
+                        </div>
+                    </div>
+                </header>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
+
+                    {/* LEFT: CARD */}
+                    <div className="flex flex-col gap-8">
+                        <div className="relative w-full h-[520px] perspective-1000">
+                            <div className={`relative w-full h-full transition-all duration-700 transform-style-3d ${isFlipped?'rotate-y-180':''}`}>
+
+                                {/* FRONT */}
+                                <div className="absolute inset-0 bg-white rounded-[3rem] shadow-2xl p-10 border-b-[12px] border-indigo-100 flex flex-col backface-hidden overflow-hidden">
+                                    <div className="flex justify-between items-center mb-8">
+                                        <span className="bg-indigo-600 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase">CASE #{idx+1}</span>
+                                        <button onClick={()=>{AudioEngine.playSFX('click');setShowHint(true);}} className="w-10 h-10 flex items-center justify-center bg-gray-50 hover:bg-indigo-100 rounded-full border border-gray-100 text-gray-400 hover:text-indigo-600 transition-all">
+                                            <Icon name="help-circle" size={24}/>
+                                        </button>
+                                    </div>
+                                    <div className="flex-grow flex flex-col items-center justify-center text-center">
+                                        <div className="scenario-container custom-scrollbar pr-2 w-full">
+                                            <p className={`${dynFont(sc.front)} font-bold leading-tight text-indigo-950 px-2`}>"{sc.front}"</p>
+                                        </div>
+                                        <div className="w-full space-y-4">
+                                            <p className="text-[10px] font-black text-gray-300 uppercase text-center tracking-widest">Pilih Aksi Trading Hubungan:</p>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <button onClick={()=>predict('nabung')} className={`flex flex-col items-center gap-3 py-6 rounded-[2rem] border-4 transition-all ${predictions[idx]==='nabung'?'bg-green-50 border-green-400 text-green-700 scale-105 shadow-md':'bg-gray-50 border-transparent text-gray-300'}`}>
+                                                    <Icon name="arrow-up-circle" size={32}/><span className="text-sm font-black uppercase">BELI HUBUNGAN</span>
+                                                </button>
+                                                <button onClick={()=>predict('minus')} className={`flex flex-col items-center gap-3 py-6 rounded-[2rem] border-4 transition-all ${predictions[idx]==='minus'?'bg-red-50 border-red-400 text-red-700 scale-105 shadow-md':'bg-gray-50 border-transparent text-gray-300'}`}>
+                                                    <Icon name="arrow-down-circle" size={32}/><span className="text-sm font-black uppercase">JUAL HUBUNGAN</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button onClick={flip} disabled={!predictions[idx]} className={`mt-6 py-5 rounded-[2rem] text-sm font-black transition-all flex items-center justify-center gap-3 uppercase ${predictions[idx]?'bg-indigo-600 text-white shadow-xl hover:bg-indigo-700':'bg-gray-50 text-gray-200 cursor-not-allowed'}`}>
+                                        EKSEKUSI ORDER <Icon name="zap" size={20}/>
+                                    </button>
+                                </div>
+
+                                {/* BACK */}
+                                <div className="absolute inset-0 bg-white rounded-[3rem] shadow-2xl p-8 border-b-[12px] border-gray-100 flex flex-col backface-hidden rotate-y-180 overflow-hidden">
+                                    {isFlipped && (
+                                        <div className="h-full flex flex-col">
+                                            <div className="flex justify-between items-center mb-6">
+                                                <div className={`flex items-center gap-3 px-5 py-2.5 rounded-full font-black text-[10px] uppercase shadow-sm ${correct?'bg-green-500 text-white':'bg-red-500 text-white'}`}>
+                                                    <Icon name={correct?'check-circle':'x-circle'} size={16}/>
+                                                    {correct?'Profit ✅':'Loss ❌'}
+                                                </div>
+                                                <div className={`p-2 rounded-xl flex items-center gap-2 font-black ${correct?'text-green-600 bg-green-50':'text-red-600 bg-red-50'}`}>
+                                                    <Icon name={correct?'trending-up':'trending-down'} size={28}/>
+                                                    <span className="text-[10px] uppercase tracking-tighter">{correct?'BULLISH':'BEARISH'}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex-grow overflow-y-auto pr-3 mb-8 custom-scrollbar text-center">
+                                                <h3 className={`text-5xl font-black mb-4 ${correct?'text-green-500':'text-red-500'}`}>{correct?'+10.000':'-10.000'}</h3>
+                                                <div className={`bg-gray-50 p-6 rounded-[2.5rem] text-indigo-900 leading-relaxed font-semibold italic border-l-8 border-indigo-200 text-left ${dynFont(sc.back)}`}>
+                                                    "{sc.back}"
+                                                </div>
+                                            </div>
+                                            <button onClick={next} className="w-full bg-indigo-600 text-white font-black py-6 rounded-[2rem] shadow-xl active:scale-95 flex items-center justify-center gap-3 uppercase text-sm">
+                                                {idx===scenarios.length-1?'LIHAT PORTOFOLIO':'NEXT ORDER'} <Icon name="chevron-right" size={24}/>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Progress dots */}
+                        <div className="flex justify-center gap-3">
+                            {scenarios.map((_,i)=>(
+                                <div key={i} className={`h-2.5 rounded-full transition-all duration-500 ${i===idx?'bg-indigo-600 w-12':predictions[i]!==null?'bg-indigo-200 w-4':'bg-white w-4'}`}/>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* RIGHT: DASHBOARD */}
+                    <div className="flex flex-col gap-8">
+                        <div className="bg-indigo-700 rounded-[3rem] p-10 text-white shadow-2xl">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200/60 mb-2">Saldo Emosi Hubungan</p>
+                            <h2 className={`text-6xl font-black leading-none ${balanceAnim?'animate-pulse-green':''}`}>
+                                <span className="text-2xl font-bold opacity-50 mr-2">Rp</span>{balance.toLocaleString('id-ID')}
+                            </h2>
+                            <div className="grid grid-cols-2 gap-4 mt-8">
+                                <div className="bg-white/5 p-4 rounded-3xl border border-white/5">
+                                    <p className="text-[9px] font-black uppercase opacity-40 mb-1">Emosi Profits</p>
+                                    <p className="text-xl font-black text-green-400">+{fmtIDR(history.filter(h=>h.isCorrect).length*10000)}</p>
+                                </div>
+                                <div className="bg-white/5 p-4 rounded-3xl border border-white/5">
+                                    <p className="text-[9px] font-black uppercase opacity-40 mb-1">Emosi Losses</p>
+                                    <p className="text-xl font-black text-red-400">-{fmtIDR(history.filter(h=>!h.isCorrect).length*10000)}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-[3rem] shadow-xl p-8 flex flex-col h-[320px] border border-gray-100 overflow-hidden">
+                            <div className="flex items-center gap-3 mb-8">
+                                <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600"><Icon name="history" size={20}/></div>
+                                <h3 className="font-black text-indigo-950 uppercase text-xs tracking-widest">Order History</h3>
+                            </div>
+                            <div className="flex-grow overflow-y-auto space-y-4 custom-scrollbar pr-3">
+                                {history.length===0
+                                    ? <div className="h-full flex flex-col items-center justify-center text-gray-300 gap-4 opacity-40 italic font-bold uppercase tracking-widest text-xs text-center">Waiting for execution...</div>
+                                    : history.map(item=>(
+                                        <div key={item.id} className="flex items-center justify-between p-5 bg-indigo-50/40 rounded-[2rem] border border-white">
+                                            <div className="flex items-center gap-4">
+                                                <div className={`p-3 rounded-xl ${item.isCorrect?'bg-green-500 text-white':'bg-red-500 text-white'}`}><Icon name={item.isCorrect?'trending-up':'trending-down'} size={16}/></div>
+                                                <div>
+                                                    <p className="text-[10px] font-black opacity-30 uppercase">Order #{item.scenarioIdx+1}</p>
+                                                    <p className="text-xs font-black text-indigo-950 uppercase">{item.title}</p>
+                                                </div>
+                                            </div>
+                                            <p className={`font-black text-sm ${item.isCorrect?'text-green-500':'text-red-500'}`}>{item.amount>0?'+':''}{item.amount.toLocaleString('id-ID')}</p>
+                                        </div>
+                                    ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* HINT MODAL */}
+            {showHint && (
+                <div className="fixed inset-0 bg-indigo-950/70 backdrop-blur-sm z-[100] flex items-center justify-center p-6" onClick={()=>setShowHint(false)}>
+                    <div className="bg-white rounded-[3rem] p-10 max-w-md w-full shadow-2xl border-b-[12px] border-indigo-100" onClick={e=>e.stopPropagation()}>
+                        <div className="flex justify-center mb-6 text-indigo-600"><Icon name="lightbulb" size={64} className="animate-pulse"/></div>
+                        <h4 className="text-2xl font-black text-indigo-950 text-center mb-4 uppercase tracking-tight">Analisis Sinyal</h4>
+                        <div className="bg-indigo-50 p-6 rounded-3xl mb-8">
+                            <p className="text-gray-700 italic font-medium leading-relaxed text-center">"{scenarios[idx].hint}"</p>
+                        </div>
+                        <button onClick={()=>{AudioEngine.playSFX('click');setShowHint(false);}} className="w-full bg-indigo-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-sm shadow-xl active:scale-95">
+                            Lanjutkan Analisis
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            <footer className="mt-12 text-center text-[10px] font-black text-indigo-200 uppercase tracking-[0.5em] pb-8">
+                Education &amp; Training Dept. &copy; 2026
+            </footer>
+        </div>
+    );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
